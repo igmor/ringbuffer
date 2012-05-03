@@ -46,7 +46,14 @@ public:
 class YieldWaitConsumerStrategy  : public WaitConsumerStrategy
 {
 public:
-    virtual void wait() {}
+    virtual void wait() 
+    {
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 10;
+
+        nanosleep(&ts, NULL); 
+    }
 };
 
 
@@ -87,6 +94,8 @@ private:
     //read_offset in a mirror memory mapped region
     unsigned long                    m_watermark;
 
+    unsigned long                    m_read_barrier;
+
     std::vector<RingBufferConsumer*> m_consumers;
     std::vector<RingBufferProducer*> m_producers;
 
@@ -117,7 +126,7 @@ public:
           m_wait_strategy(wait_strategy)
     {
         create_ring_buffer();
-        m_offsets.resize(1UL << m_order, 0);
+        m_offsets.resize(2*(1UL << m_order), 0);
     }
 
     virtual ~RingBuffer()

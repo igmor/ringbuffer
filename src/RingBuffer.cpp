@@ -1,5 +1,6 @@
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -9,10 +10,19 @@
 #include "RingBufferConsumer.h"
 #include "RingBufferProducer.h"
 
+#ifdef __APPLE__
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
 void RingBuffer::create_ring_buffer()
 {
-    //TODO: check this file existence
+    //TODO: be smart about this file creating
+    //security, permissions, etc
+#ifdef __APPLE__
+    char path[] = "/tmp/ring-buffer-XXXXXX";
+#else
     char path[] = "/dev/shm/ring-buffer-XXXXXX";
+#endif
     int status;
     unsigned char* address;
 
@@ -43,8 +53,7 @@ void RingBuffer::create_ring_buffer()
     if (address != m_address)
         throw RingBufferException(std::string("could not map first region"));
 
-    address = (unsigned char*)mmap (m_address + m_size,m_size, PROT_READ
-                                    | PROT_WRITE,
+    address = (unsigned char*)mmap (m_address + m_size,m_size, PROT_READ | PROT_WRITE,
                                     MAP_FIXED | MAP_SHARED, m_file_descriptor, 0);
 
     if (address != m_address + m_size)
@@ -72,19 +81,32 @@ unsigned long RingBuffer::advance_write_offset(unsigned long size)
 unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
                                               long offset, unsigned long size)
 {
-    fprintf(stderr, "%s m_write_offset: %lld, m_unclaimed_write_offset: %lld, m_read_offset: %lld, size: %lld, watermark: %x\n", __FUNCTION__,
-            m_write_offset, m_unclaimed_write_offset, m_read_offset, size, m_watermark);
+    if (offset % 132072 == 0)
+    fprintf(stderr, "%s m_write_offset: %lld, m_unclaimed_write_offset: %lld, offset: %lld, read_offset: %lld, barrier: %ld, watermark: 0x%04x\n", __FUNCTION__,
+            m_write_offset, m_unclaimed_write_offset, offset, m_read_offset, m_read_barrier, m_watermark);
+
     //clear bit in watermark bit vector if current offset goes into mirror
     if (offset + size > m_size)
-        __sync_val_compare_and_swap(&m_watermark, m_watermark,
-                                    m_watermark & ~(1UL << c_id));
+        __sync_val_compare_and_swap(&m_watermark, m_watermark, m_watermark & ~(1UL << c_id));
 
     //we got here after we moved all offsets from mirror
     //so we need to correct an offset and set a watermark bit again
-    if (offset > m_size && m_write_offset < offset )
+    if (offset > m_size && m_write_offset < offset && !(m_watermark & (1UL << c_id)))
     {
-        //offset -= m_size;
+        offset -= m_size;
         m_watermark |= (1UL << c_id);
+    }
+
+    if (m_read_barrier == 0)
+    {
+        m_read_offset = offset + size;
+        m_read_barrier = ((1 + m_consumers.size()) * m_consumers.size()) / 2;
+    }
+    else
+    {
+        if (offset < m_read_offset)
+            m_read_offset = offset + size;
+        m_read_barrier -= (c_id + 1);
     }
 
     //if watermark is zero all consumers are in mirror
@@ -94,7 +116,7 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
         fprintf(stderr, "adjusting\n");
         __sync_sub_and_fetch(&m_write_offset, m_size);
         __sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
-        __sync_add_and_fetch(&m_read_offset, m_size);
+        __sync_sub_and_fetch(&m_read_offset, m_size);
     }
 
     return offset + size;
@@ -102,8 +124,17 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
 
 void RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
 {
+    /*if (offset % 1000 == 0)
+    {
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 100;
+
+        nanosleep(&ts, NULL);
+        }*/
+
     memcpy(m_address + offset, buffer, size);
-    __sync_add_and_fetch(&m_offsets[offset], offset+size);
+    __sync_add_and_fetch(&m_offsets[offset], offset + size);
 
     while (__sync_add_and_fetch(&m_offsets[m_write_offset], 0) > 0)
     {
@@ -117,6 +148,11 @@ void RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned lon
 unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer,
                                unsigned long offset, unsigned long size)
 {
+    if (offset >= m_write_offset)
+    {
+        //fprintf(stderr, "waiting\n");
+        m_wait_strategy.wait();
+    }
     memcpy(buffer, m_address + offset, size);
     return advance_read_offset(c_id, offset, size);
 }
@@ -130,6 +166,7 @@ RingBufferConsumer* RingBuffer::createConsumer()
     m_watermark |= (1UL << m_consumers.size());
     m_consumers.push_back(p);
 
+    m_read_barrier = ((1 + m_consumers.size()) * m_consumers.size()) / 2;
     return p;
 }
 

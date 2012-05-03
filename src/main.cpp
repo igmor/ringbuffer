@@ -57,7 +57,7 @@ int main()
 {
     pthread_t producer_thread, consumer_thread;
 
-    unsigned long order = 23;
+    unsigned long order = 19;
     RingBuffer rb(order, YieldWaitConsumerStrategy());
     RingBufferConsumer* p_consumer = rb.createConsumer();
     RingBufferProducer* p_producer = rb.createProducer();
