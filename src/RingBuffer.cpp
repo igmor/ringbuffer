@@ -1,6 +1,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <time.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -81,28 +82,32 @@ unsigned long RingBuffer::claim_write_offset(unsigned long size)
 unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
                                               long offset, unsigned long size)
 {
-    //if (offset % 132072 == 0)
-    fprintf(stderr, "%s m_write_offset: %lld, m_unclaimed_write_offset: %lld, offset: %lld, read_offset: %lld, barrier: 0x%04x, watermark: 0x%04x\n", __FUNCTION__,
-            m_write_offset, m_unclaimed_write_offset, offset, m_read_offset, m_read_barrier, m_watermark);
+    //if (offset == 0)
+    //fprintf(stderr, "%s m_write_offset: %ld, offset: %ld, read_offset: %ld, val: %ld, barrier: 0x%04x, watermark: 0x%04x\n", __FUNCTION__,
+    //        m_write_offset, offset, m_read_offset, *((unsigned long*)(m_address + offset)), m_read_barrier, m_watermark);
+
+    //__sync_val_compare_and_swap(&m_read_offset, m_read_offset, offset);
 
     m_read_offset = offset;
 
     //if watermark is zero all consumers are in mirror
     //and it is safe to adjust read/write offsets
-    if (m_read_offset >= m_size && m_write_offset >= m_size)
+    if (__sync_fetch_and_add(&m_read_offset, 0) >= m_size && __sync_fetch_and_add(&m_write_offset,0) >= m_size)
     {
-        fprintf(stderr, "adjusting\n");
+        //fprintf(stderr, "adjusting\n");
         
-        __sync_val_compare_and_swap(&m_offsets[offset],
-                                    m_offsets[offset], m_offsets[offset - m_size]);
+        //__sync_val_compare_and_swap(&m_offsets[offset],
+        //                            m_offsets[offset], m_offsets[offset - m_size]);
 
         offset -= m_size;
-        __sync_sub_and_fetch(&m_write_offset, m_size);
-        __sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
+       
+        //__sync_sub_and_fetch(&m_write_offset, m_size);
+        //__sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
         __sync_sub_and_fetch(&m_read_offset, m_size);
+        __sync_sub_and_fetch(&m_write_offset, m_size);
     }
 
-    return size;
+    return m_read_offset + size;
 }
 
 /*
@@ -152,29 +157,24 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
     return offset + size;
 }*/
 
-unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
+unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
 {
-    if (offset + size > m_size * 2)
+    if (__sync_add_and_fetch(&m_write_offset, 0) + size >= m_size * 2)
         return 0;
 
-    /*if (offset % 1000 == 0)
+    memcpy(m_address + __sync_add_and_fetch(&m_write_offset, 0), buffer, size);
+    //__sync_add_and_fetch(&m_offsets[offset], offset + size);
+    __sync_add_and_fetch(&m_write_offset, size);
+    unsigned long v1 = *((unsigned long*)(m_address + __sync_add_and_fetch(&m_write_offset, 0) - 8));
+    unsigned long v2 = *((unsigned long*)(m_address + __sync_add_and_fetch(&m_write_offset, 0)));
+
+    assert(v1 != v2);
+    //while (__sync_add_and_fetch(&m_offsets[m_write_offset], 0) > 0)
     {
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = 100;
-
-        nanosleep(&ts, NULL);
-        }*/
-
-    memcpy(m_address + offset, buffer, size);
-    __sync_add_and_fetch(&m_offsets[offset], offset + size);
-
-    while (__sync_add_and_fetch(&m_offsets[m_write_offset], 0) > 0)
-    {
-        __sync_val_compare_and_swap(&m_write_offset,
-                                    m_write_offset, m_offsets[offset]);
-        __sync_val_compare_and_swap(&m_offsets[offset],
-                                    m_offsets[offset], 0);
+        // __sync_val_compare_and_swap(&m_write_offset,
+        //                              m_write_offset, m_offsets[offset]);
+    //__sync_val_compare_and_swap(&m_offsets[offset],
+    //                                m_offsets[offset], 0);
     }
 
     return size;
@@ -182,11 +182,13 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, uns
 
 unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsigned long offset, unsigned long size)
 {
-    if (offset >= m_write_offset)
+    if (offset + size > __sync_add_and_fetch(&m_write_offset,0))
     {
-        fprintf(stderr, "waiting\n");
+        //fprintf(stderr, "waiting\n");
         m_wait_strategy.wait();
+        return offset;
     }
+
     memcpy(buffer, m_address + offset, size);
     return advance_read_offset(c_id, offset, size);
 }

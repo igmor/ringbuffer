@@ -8,7 +8,7 @@
 #include "RingBufferConsumer.h"
 #include "RingBufferProducer.h"
 
-#define N_ITERS 100*1000*1000
+#define N_ITERS 10*1000*1000
 
 void* produce_function ( void *ptr )
 {
@@ -19,7 +19,7 @@ void* produce_function ( void *ptr )
     ts.tv_nsec = 1;
 
 
-    for (unsigned long i = 0 ; i < N_ITERS; i++)
+    for (unsigned long i = 1 ; i <= N_ITERS; i++)
     {
         while (p_producer->write(&i, sizeof(i)) != sizeof(i))
             nanosleep(&ts, NULL);
@@ -41,10 +41,18 @@ void* consume_function ( void *ptr )
 
     while(true)
     {
+        unsigned long prev_v = v;
         if (p_consumer->read(&v, sizeof(v)) != sizeof(v))
+        {
             nanosleep(&ts, NULL);
+            continue;
+        }
+        //else
+        //    if (v % 1000000 == 0) fprintf(stderr, "read %ld\n", v);
 
-        if (v + 1 == N_ITERS)
+        if (prev_v + 1 != v)
+            fprintf(stderr, "inconsistency when reading consecutive numbers, prev = %ld, next = %ld\n", prev_v, v);
+        if (v + 1 > N_ITERS)
             break;
     }
 }
@@ -69,5 +77,5 @@ int main()
 
     gettimeofday(&tv2, NULL);
 
-    printf("exec time %lld\n", tv2.tv_sec * 1000000 + tv2.tv_usec - tv1.tv_sec * 1000000 - tv1.tv_usec);
+    printf("exec time %ld\n", tv2.tv_sec * 1000000 + tv2.tv_usec - tv1.tv_sec * 1000000 - tv1.tv_usec);
 }
