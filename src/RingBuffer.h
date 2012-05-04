@@ -106,12 +106,12 @@ private:
     void create_ring_buffer();
     void free_ring_buffer();
 
-    unsigned long advance_write_offset(unsigned long size);
+    unsigned long claim_write_offset(unsigned long size);
 
     unsigned long advance_read_offset(unsigned long c_id, unsigned
                                       long offset, unsigned long size);
 
-    void write(unsigned char* buffer, unsigned long offset, unsigned long size);
+    unsigned long write(unsigned char* buffer, unsigned long offset, unsigned long size);
 
     unsigned long read(unsigned long c_id, unsigned char* buffer,
                        unsigned long offset, unsigned long size);
@@ -126,7 +126,7 @@ public:
           m_wait_strategy(wait_strategy)
     {
         create_ring_buffer();
-        m_offsets.resize(2*(1UL << m_order), 0);
+        m_offsets.resize(2*(1UL << m_order) + 9, 0);
     }
 
     virtual ~RingBuffer()

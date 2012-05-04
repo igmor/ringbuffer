@@ -21,10 +21,10 @@ public:
     unsigned long write(void* buffer, unsigned long size)
     {
         //advancing unclaimed write offset
-        unsigned long write_offset = m_ring_buffer->advance_write_offset(size);
+        unsigned long write_offset = m_ring_buffer->claim_write_offset(size);
 
         //write and claim write offset
-        m_ring_buffer->write((unsigned char*)buffer, write_offset - size, size);
+        return m_ring_buffer->write((unsigned char*)buffer, write_offset - size, size);
     }
 
     //alerts producers buffer is full to let them come up

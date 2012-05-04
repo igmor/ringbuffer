@@ -73,7 +73,7 @@ void RingBuffer::free_ring_buffer()
         throw RingBufferException(std::string("could not unmap memory region" ));
 }
 
-unsigned long RingBuffer::advance_write_offset(unsigned long size)
+unsigned long RingBuffer::claim_write_offset(unsigned long size)
 {
     return __sync_add_and_fetch(&m_unclaimed_write_offset, size);
 }
@@ -81,8 +81,36 @@ unsigned long RingBuffer::advance_write_offset(unsigned long size)
 unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
                                               long offset, unsigned long size)
 {
+    //if (offset % 132072 == 0)
+    fprintf(stderr, "%s m_write_offset: %lld, m_unclaimed_write_offset: %lld, offset: %lld, read_offset: %lld, barrier: 0x%04x, watermark: 0x%04x\n", __FUNCTION__,
+            m_write_offset, m_unclaimed_write_offset, offset, m_read_offset, m_read_barrier, m_watermark);
+
+    m_read_offset = offset;
+
+    //if watermark is zero all consumers are in mirror
+    //and it is safe to adjust read/write offsets
+    if (m_read_offset >= m_size && m_write_offset >= m_size)
+    {
+        fprintf(stderr, "adjusting\n");
+        
+        __sync_val_compare_and_swap(&m_offsets[offset],
+                                    m_offsets[offset], m_offsets[offset - m_size]);
+
+        offset -= m_size;
+        __sync_sub_and_fetch(&m_write_offset, m_size);
+        __sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
+        __sync_sub_and_fetch(&m_read_offset, m_size);
+    }
+
+    return size;
+}
+
+/*
+unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
+                                              long offset, unsigned long size)
+{
     if (offset % 132072 == 0)
-    fprintf(stderr, "%s m_write_offset: %lld, m_unclaimed_write_offset: %lld, offset: %lld, read_offset: %lld, barrier: %ld, watermark: 0x%04x\n", __FUNCTION__,
+    fprintf(stderr, "%s m_write_offset: %lld, m_unclaimed_write_offset: %lld, offset: %lld, read_offset: %lld, barrier: 0x%04x, watermark: 0x%04x\n", __FUNCTION__,
             m_write_offset, m_unclaimed_write_offset, offset, m_read_offset, m_read_barrier, m_watermark);
 
     //clear bit in watermark bit vector if current offset goes into mirror
@@ -100,13 +128,15 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
     if (m_read_barrier == 0)
     {
         m_read_offset = offset + size;
-        m_read_barrier = ((1 + m_consumers.size()) * m_consumers.size()) / 2;
+        //resets all the bits again
+        m_read_barrier = (~m_read_barrier) >> (sizeof(m_read_barrier) - m_consumers.size() );
     }
     else
     {
-        if (offset < m_read_offset)
+        if (offset + size < m_read_offset)
             m_read_offset = offset + size;
-        m_read_barrier -= (c_id + 1);
+        //clearing up  the bit
+        m_read_barrier &= ~(1UL << c_id);
     }
 
     //if watermark is zero all consumers are in mirror
@@ -120,10 +150,13 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
     }
 
     return offset + size;
-}
+}*/
 
-void RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
+unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
 {
+    if (offset + size > m_size * 2)
+        return 0;
+
     /*if (offset % 1000 == 0)
     {
         struct timespec ts;
@@ -143,14 +176,15 @@ void RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned lon
         __sync_val_compare_and_swap(&m_offsets[offset],
                                     m_offsets[offset], 0);
     }
+
+    return size;
 }
 
-unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer,
-                               unsigned long offset, unsigned long size)
+unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsigned long offset, unsigned long size)
 {
     if (offset >= m_write_offset)
     {
-        //fprintf(stderr, "waiting\n");
+        fprintf(stderr, "waiting\n");
         m_wait_strategy.wait();
     }
     memcpy(buffer, m_address + offset, size);
@@ -164,9 +198,9 @@ RingBufferConsumer* RingBuffer::createConsumer()
     RingBufferConsumer* p =  new RingBufferConsumer(this,
                                                     m_consumers.size());
     m_watermark |= (1UL << m_consumers.size());
-    m_consumers.push_back(p);
+    m_read_barrier |= (1UL << m_consumers.size()); 
 
-    m_read_barrier = ((1 + m_consumers.size()) * m_consumers.size()) / 2;
+    m_consumers.push_back(p);
     return p;
 }
 
@@ -178,5 +212,3 @@ RingBufferProducer* RingBuffer::createProducer()
 
     return p;
 }
-
-

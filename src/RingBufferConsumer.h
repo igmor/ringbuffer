@@ -27,8 +27,8 @@ public:
         if (m_ring_buffer->isEmpty())
             m_ring_buffer->m_wait_strategy.wait();
 
-        m_read_offset = m_ring_buffer->read(m_consumer_id, (unsigned char*)buffer, m_read_offset, size);
-        return __sync_add_and_fetch( &m_read_offset, size);
+        unsigned long sz = m_ring_buffer->read(m_consumer_id, (unsigned char*)buffer, m_read_offset, size);       
+        return __sync_add_and_fetch( &m_read_offset, sz);
     }
 };
 

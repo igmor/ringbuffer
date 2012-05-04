@@ -21,9 +21,7 @@ void* produce_function ( void *ptr )
 
     for (unsigned long i = 0 ; i < N_ITERS; i++)
     {
-        p_producer->write(&i, sizeof(i));
-
-        if (i % 262144 == 0)
+        while (p_producer->write(&i, sizeof(i)) != sizeof(i))
             nanosleep(&ts, NULL);
 
         // if (i % 10000 == 0)
@@ -43,10 +41,8 @@ void* consume_function ( void *ptr )
 
     while(true)
     {
-        p_consumer->read(&v, sizeof(v));
-        //printf("read %d\n", v);
-        // if (v % 10000 == 0)
-        //    printf("read %d\n", v);
+        if (p_consumer->read(&v, sizeof(v)) != sizeof(v))
+            nanosleep(&ts, NULL);
 
         if (v + 1 == N_ITERS)
             break;
