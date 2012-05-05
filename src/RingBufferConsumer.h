@@ -37,6 +37,11 @@ public:
 
         return m_read_offset - prev_offset;
     }
+    void dump()
+    {
+        m_ring_buffer->dump();
+    }
+
 };
 
 #endif

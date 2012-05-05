@@ -22,7 +22,8 @@ void* produce_function ( void *ptr )
     for (unsigned long i = 1 ; i <= N_ITERS; i++)
     {
         while (p_producer->write(&i, sizeof(i)) != sizeof(i))
-            nanosleep(&ts, NULL);
+            ;
+        //nanosleep(&ts, NULL);
 
         // if (i % 10000 == 0)
         //    printf("%d\n", i);
@@ -51,17 +52,20 @@ void* consume_function ( void *ptr )
         //    if (v % 1000000 == 0) fprintf(stderr, "read %ld\n", v);
 
         if (prev_v + 1 != v)
+        {
             fprintf(stderr, "inconsistency when reading consecutive numbers, prev = %ld, next = %ld\n", prev_v, v);
+            p_consumer->dump();
+        }
         if (v + 1 > N_ITERS)
             break;
     }
 }
 
-int main()
+int main(int argc, char ** argv)
 {
     pthread_t producer_thread, consumer_thread;
 
-    unsigned long order = 19;
+    unsigned long order = argc > 1 ? atoi(argv[argc-1]) : 26;
     RingBuffer rb(order, YieldWaitConsumerStrategy());
     RingBufferConsumer* p_consumer = rb.createConsumer();
     RingBufferProducer* p_producer = rb.createProducer();

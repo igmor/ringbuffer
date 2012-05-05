@@ -153,6 +153,8 @@ public:
 
     RingBufferConsumer* createConsumer();
     RingBufferProducer* createProducer();
+
+    void dump();
 };
 
 #endif
