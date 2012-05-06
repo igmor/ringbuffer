@@ -24,8 +24,8 @@ public:
 
     unsigned long read(void* buffer, unsigned long size)
     {
-        if (m_ring_buffer->isEmpty())
-            return 0;
+        //if (m_ring_buffer->isEmpty())
+        //    return 0;
 
         unsigned long prev_offset = m_read_offset;
         m_read_offset = m_ring_buffer->read(m_consumer_id, (unsigned char*)buffer, m_read_offset, size); 

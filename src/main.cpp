@@ -29,6 +29,7 @@ void* produce_function ( void *ptr )
         //    printf("%d\n", i);
 
     }
+    fprintf(stderr, "producer is done\n"); 
 }
 
 void* consume_function ( void *ptr )
@@ -39,10 +40,10 @@ void* consume_function ( void *ptr )
     struct timespec ts;
     ts.tv_sec = 0;
     ts.tv_nsec = 1;
+    unsigned long prev_v = v;
 
     while(true)
     {
-        unsigned long prev_v = v;
         if (p_consumer->read(&v, sizeof(v)) != sizeof(v))
         {
             nanosleep(&ts, NULL);
@@ -56,8 +57,9 @@ void* consume_function ( void *ptr )
             fprintf(stderr, "inconsistency when reading consecutive numbers, prev = %ld, next = %ld\n", prev_v, v);
             p_consumer->dump();
         }
-        if (v + 1 > N_ITERS)
+        if (v + 1 >= N_ITERS+1)
             break;
+        prev_v = v;
     }
 }
 

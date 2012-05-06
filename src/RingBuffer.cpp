@@ -172,6 +172,13 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
     memcpy(m_address + wo, buffer, size);
     //__sync_add_and_fetch(&m_offsets[offset], offset + size);
     __sync_add_and_fetch(&m_write_offset, size);
+
+        unsigned long v1 = *((unsigned long*)(m_address + wo - 8));
+        unsigned long v2 = *((unsigned long*)(m_address + wo));
+
+            if (v1 + 1 != v2)
+                fprintf(stderr, "major oops! %ld, %ld\n", v1, v2);
+
     //while (__sync_add_and_fetch(&m_offsets[m_write_offset], 0) > 0)
     {
         // __sync_val_compare_and_swap(&m_write_offset,
@@ -186,33 +193,40 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
 unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsigned long offset, unsigned long size)
 {
     unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
+
     if (offset + size > wo || offset >= wo)
        return offset;
 
     //if watermark is zero all consumers are in mirror
     //and it is safe to adjust read/write offsets
-    if (m_read_offset >= m_size && wo >= m_size)
+    if (offset >= m_size && wo >= m_size)
     {
-        fprintf(stderr, "%s m_write_offset: %ld, read_offset: %ld, val: %ld\n", "wraping",
-                m_write_offset, m_read_offset, *((unsigned long*)(m_address + m_read_offset)), m_read_barrier, m_watermark);
+        //fprintf(stderr, "%s m_write_offset: %ld, read_offset: %ld, val: %ld\n", "wraping",
+        //        m_write_offset, m_read_offset, *((unsigned long*)(m_address + m_read_offset)), m_read_barrier, m_watermark);
 
         //fprintf(stderr, "adjusting\n");
         
         //__sync_val_compare_and_swap(&m_offsets[offset],
         //                            m_offsets[offset], m_offsets[offset - m_size]);
-        __sync_sub_and_fetch(&m_write_offset, min(m_read_offset, wo));
-        offset -= min(m_read_offset, wo);
+        unsigned long nwo = __sync_sub_and_fetch(&m_write_offset, min(offset, wo));
+        offset -= min(offset, wo);
        
+        unsigned long v1 = *((unsigned long*)(m_address + nwo - 16));
+        unsigned long v2 = *((unsigned long*)(m_address + nwo - 8));
+
+        if (v1 + 1 != v2)
+            fprintf(stderr, "oops! %ld, %ld\n", v1, v2);
+
         //__sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
-        //__sync_sub_and_fetch(&m_read_offset, m_size);
+        __sync_sub_and_fetch(&m_read_offset, m_size);
         //__sync_sub_and_fetch(&m_write_offset, m_size);
     }
 
     memcpy(buffer, m_address + offset, size);
     //    return advance_read_offset(c_id, offset, size);
-    m_read_offset = offset;
+    m_read_offset = offset + size;
 
-    return m_read_offset + size;
+    return offset + size;
 }
 
 
