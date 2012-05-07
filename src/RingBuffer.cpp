@@ -1,5 +1,6 @@
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <emmintrin.h>
 #include <time.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -166,7 +167,9 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
 unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
 {
     unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
-    if (wo + size >= m_size * 2)
+    unsigned long ro = __sync_add_and_fetch(&m_read_offset, 0);
+
+    if (wo + size >= m_size * 2 || (wo >= m_size && ro < m_size))
         return 0;
 
     memcpy(m_address + wo, buffer, size);
@@ -192,7 +195,7 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
 
 unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsigned long offset, unsigned long size)
 {
-    unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
+     unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
 
     if (offset + size > wo || offset >= wo)
        return offset;
@@ -208,23 +211,24 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
         
         //__sync_val_compare_and_swap(&m_offsets[offset],
         //                            m_offsets[offset], m_offsets[offset - m_size]);
-        unsigned long nwo = __sync_sub_and_fetch(&m_write_offset, min(offset, wo));
-        offset -= min(offset, wo);
+        __sync_sub_and_fetch(&m_read_offset, m_size);
+        unsigned long nwo = __sync_sub_and_fetch(&m_write_offset, m_size);
+        offset -= m_size;
        
-        unsigned long v1 = *((unsigned long*)(m_address + nwo - 16));
-        unsigned long v2 = *((unsigned long*)(m_address + nwo - 8));
+        //unsigned long v1 = *((unsigned long*)(m_address + nwo - 16));
+        //unsigned long v2 = *((unsigned long*)(m_address + nwo - 8));
 
-        if (v1 + 1 != v2)
-            fprintf(stderr, "oops! %ld, %ld\n", v1, v2);
+        //if (v1 + 1 != v2)
+        //    fprintf(stderr, "oops! offset: %ld, v1: %ld, v2: %ld\n", nwo, v1, v2);
 
         //__sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
-        __sync_sub_and_fetch(&m_read_offset, m_size);
+
         //__sync_sub_and_fetch(&m_write_offset, m_size);
     }
 
     memcpy(buffer, m_address + offset, size);
     //    return advance_read_offset(c_id, offset, size);
-    m_read_offset = offset + size;
+    __sync_add_and_fetch(&m_read_offset, size);
 
     return offset + size;
 }

@@ -8,7 +8,7 @@
 #include "RingBufferConsumer.h"
 #include "RingBufferProducer.h"
 
-#define N_ITERS 10*1000*1000
+#define N_ITERS 25*1000*1000
 
 void* produce_function ( void *ptr )
 {
@@ -46,12 +46,12 @@ void* consume_function ( void *ptr )
     {
         if (p_consumer->read(&v, sizeof(v)) != sizeof(v))
         {
-            nanosleep(&ts, NULL);
+            //nanosleep(&ts, NULL);
             continue;
         }
         //else
         //    if (v % 1000000 == 0) fprintf(stderr, "read %ld\n", v);
-
+        //fprintf(stderr, "val = %ld\n", v);
         if (prev_v + 1 != v)
         {
             fprintf(stderr, "inconsistency when reading consecutive numbers, prev = %ld, next = %ld\n", prev_v, v);
