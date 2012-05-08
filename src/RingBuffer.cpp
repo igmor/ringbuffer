@@ -73,16 +73,14 @@ void RingBuffer::create_ring_buffer()
 
 void RingBuffer::free_ring_buffer()
 {
-    int status;
-
-    status = munmap (m_address, m_size << 1);
+    int  status = munmap (m_address, m_size << 1);
     if (status)
         throw RingBufferException(std::string("could not unmap memory region" ));
 }
 
 unsigned long RingBuffer::claim_write_offset(unsigned long size)
 {
-    return __sync_add_and_fetch(&m_unclaimed_write_offset, size);
+    return __sync_fetch_and_add(&m_unclaimed_write_offset, size);
 }
 
 unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
@@ -106,7 +104,7 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
         //                            m_offsets[offset], m_offsets[offset - m_size]);
 
         offset -= m_size;
-       
+
         __sync_sub_and_fetch(&m_write_offset, m_size);
         //__sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
         //__sync_sub_and_fetch(&m_read_offset, m_size);
@@ -164,23 +162,29 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
     return offset + size;
 }*/
 
-unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
+unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
 {
-    unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
-    unsigned long ro = __sync_add_and_fetch(&m_read_offset, 0);
+    volatile unsigned long wo = m_write_offset;
+    volatile unsigned long ro = m_read_offset;
 
-    if (wo + size >= m_size * 2 || (wo >= m_size && ro < m_size))
+    //    if (wo + size >= m_size * 2 || (wo >= m_size && ro < m_size))
+    //    return 0;
+    //if (wo + size >= m_size * 2 ||
+    //    (wo >= m_size && ro < m_size && wo - m_size + size >= ro ))
+    //    return 0;
+
+    if (wo + size >= 2 * m_size || (wo >= m_size && ro < m_size && wo - m_size + size >= ro ))
         return 0;
 
     memcpy(m_address + wo, buffer, size);
     //__sync_add_and_fetch(&m_offsets[offset], offset + size);
     __sync_add_and_fetch(&m_write_offset, size);
 
-        unsigned long v1 = *((unsigned long*)(m_address + wo - 8));
-        unsigned long v2 = *((unsigned long*)(m_address + wo));
+    //       unsigned long v1 = *((unsigned long*)(m_address + wo - 8));
+    //    unsigned long v2 = *((unsigned long*)(m_address + wo));
 
-            if (v1 + 1 != v2)
-                fprintf(stderr, "major oops! %ld, %ld\n", v1, v2);
+    //        if (v1 + 1 != v2)
+    //            fprintf(stderr, "major oops! %ld, %ld\n", v1, v2);
 
     //while (__sync_add_and_fetch(&m_offsets[m_write_offset], 0) > 0)
     {
@@ -189,13 +193,14 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long size)
     //__sync_val_compare_and_swap(&m_offsets[offset],
     //                                m_offsets[offset], 0);
     }
-
     return size;
 }
 
 unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsigned long offset, unsigned long size)
 {
-     unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
+    //don't need to sync here, we'll miss a cycle or two in a worst case
+    //full memory barrier is an expensive thing
+    unsigned long wo = __sync_add_and_fetch(&m_write_offset,0);
 
     if (offset + size > wo || offset >= wo)
        return offset;
@@ -211,9 +216,13 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
         
         //__sync_val_compare_and_swap(&m_offsets[offset],
         //                            m_offsets[offset], m_offsets[offset - m_size]);
-        __sync_sub_and_fetch(&m_read_offset, m_size);
-        unsigned long nwo = __sync_sub_and_fetch(&m_write_offset, m_size);
         offset -= m_size;
+        memcpy(buffer, m_address + offset, size);
+        //__sync_sub_and_fetch(&m_read_offset, m_size - size);
+        m_read_offset -= (m_size - size);
+        __sync_sub_and_fetch(&m_write_offset, m_size);
+
+        return offset + size;
        
         //unsigned long v1 = *((unsigned long*)(m_address + nwo - 16));
         //unsigned long v2 = *((unsigned long*)(m_address + nwo - 8));
@@ -228,7 +237,8 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
 
     memcpy(buffer, m_address + offset, size);
     //    return advance_read_offset(c_id, offset, size);
-    __sync_add_and_fetch(&m_read_offset, size);
+    //__sync_add_and_fetch(&m_read_offset, size);
+    m_read_offset += size;
 
     return offset + size;
 }

@@ -111,7 +111,7 @@ private:
     unsigned long advance_read_offset(unsigned long c_id, unsigned
                                       long offset, unsigned long size);
 
-    unsigned long write(unsigned char* buffer, unsigned long size);
+    unsigned long write(unsigned char* buffer, unsigned long offset, unsigned long size);
 
     unsigned long read(unsigned long c_id, unsigned char* buffer,
                        unsigned long offset, unsigned long size);
