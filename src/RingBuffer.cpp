@@ -200,7 +200,7 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
 {
     //don't need to sync here, we'll miss a cycle or two in a worst case
     //full memory barrier is an expensive thing
-    unsigned long wo = __sync_add_and_fetch(&m_write_offset,0);
+    volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset,0);
 
     if (offset + size > wo || offset >= wo)
        return offset;
