@@ -55,7 +55,7 @@ void* consume_function ( void *ptr )
         }
         //else
         //    if (v % 1000000 == 0) fprintf(stderr, "read %ld\n", v);
-        //fprintf(stderr, "val = %ld\n", v);
+        //fprintf(stderr, "val = %ld\n", *((unsigned long*)v));
         if (prev_v + 1 != *((unsigned long*)v))
         {
             fprintf(stderr, "inconsistency when reading consecutive numbers, prev = %ld, next = %ld\n", prev_v, *((unsigned long*)v));

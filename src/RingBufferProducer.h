@@ -26,7 +26,16 @@ public:
         //m_write_offset = m_ring_buffer->claim_write_offset(size);
         //unsigned long prev_write_offset = m_write_offset;
         //write and claim write offset
-        return  m_ring_buffer->write((unsigned char*)buffer, m_write_offset, size);
+        unsigned long prev_offset = m_write_offset;
+
+        //advancing unclaimed write offset
+        m_write_offset = m_ring_buffer->claim_write_offset(size);
+
+        if (m_write_offset < prev_offset && prev_offset > m_ring_buffer->m_size)
+            prev_offset -= m_ring_buffer->m_size;
+
+        //write and claim write offset
+        return (m_write_offset > prev_offset) ? m_ring_buffer->write((unsigned char*)buffer, m_write_offset - size, size) : 0;
         /*        if (m_write_offset < prev_write_offset)
         {
             prev_write_offset -= m_ring_buffer->m_size;

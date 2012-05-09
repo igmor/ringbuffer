@@ -80,20 +80,24 @@ void RingBuffer::free_ring_buffer()
 
 unsigned long RingBuffer::claim_write_offset(unsigned long size)
 {
-    return __sync_fetch_and_add(&m_unclaimed_write_offset, size);
+    volatile unsigned long ro = m_read_offset;//__sync_add_and_fetch(&m_read_offset,0);
+    volatile unsigned long wo = m_unclaimed_write_offset;//__sync_add_and_fetch(&m_unclaimed_write_offset,0);
+    if (wo + size >= 2 * m_size || ( wo >= m_size && ro < m_size && wo + size - m_size >= ro ))
+        return wo;
+
+    return __sync_add_and_fetch(&m_unclaimed_write_offset, size);
 }
 
-unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
-                                              long offset, unsigned long size)
+unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned long offset, unsigned long size)
 {
     //if (offset == 0)
     //fprintf(stderr, "%s m_write_offset: %ld, offset: %ld, read_offset: %ld, val: %ld, barrier: 0x%04x, watermark: 0x%04x\n", __FUNCTION__,
     //        m_write_offset, offset, m_read_offset, *((unsigned long*)(m_address + offset)), m_read_barrier, m_watermark);
 
     //__sync_val_compare_and_swap(&m_read_offset, m_read_offset, offset);
-
     m_read_offset = offset;
-    unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
+    unsigned long wo = offset;//__sync_add_and_fetch(&m_write_offset, 0);
+
     //if watermark is zero all consumers are in mirror
     //and it is safe to adjust read/write offsets
     if (m_read_offset >= m_size && wo  >= m_size)
@@ -164,8 +168,8 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
 
 unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
 {
-    volatile unsigned long wo = m_write_offset;
-    volatile unsigned long ro = m_read_offset;
+    //volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
+    //volatile unsigned long ro = __sync_add_and_fetch(&m_read_offset, 0);
 
     //    if (wo + size >= m_size * 2 || (wo >= m_size && ro < m_size))
     //    return 0;
@@ -173,10 +177,10 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, uns
     //    (wo >= m_size && ro < m_size && wo - m_size + size >= ro ))
     //    return 0;
 
-    if (wo + size >= 2 * m_size || (wo >= m_size && ro < m_size && wo - m_size + size >= ro ))
-        return 0;
+    //if (wo + size >= 2 * m_size || ( wo >= m_size && ro < m_size && wo + size - m_size >= ro ))
+    //    return 0;
 
-    memcpy(m_address + wo, buffer, size);
+    memcpy(m_address + offset, buffer, size);
     //__sync_add_and_fetch(&m_offsets[offset], offset + size);
     __sync_add_and_fetch(&m_write_offset, size);
 
@@ -200,7 +204,7 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
 {
     //don't need to sync here, we'll miss a cycle or two in a worst case
     //full memory barrier is an expensive thing
-    volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset,0);
+    volatile unsigned long wo = m_write_offset;//__sync_add_and_fetch(&m_write_offset,0);
 
     if (offset + size > wo || offset >= wo)
        return offset;
@@ -220,6 +224,8 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
         memcpy(buffer, m_address + offset, size);
         //__sync_sub_and_fetch(&m_read_offset, m_size - size);
         m_read_offset -= (m_size - size);
+
+        __sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
         __sync_sub_and_fetch(&m_write_offset, m_size);
 
         return offset + size;
