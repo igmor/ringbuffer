@@ -95,6 +95,7 @@ private:
     unsigned long                    m_watermark;
 
     unsigned long                    m_read_barrier;
+    volatile unsigned long                    m_write_barrier;
 
     std::vector<RingBufferConsumer*> m_consumers;
     std::vector<RingBufferProducer*> m_producers;
@@ -111,7 +112,8 @@ private:
     unsigned long advance_read_offset(unsigned long c_id, unsigned
                                       long offset, unsigned long size);
 
-    unsigned long write(unsigned char* buffer, unsigned long offset, unsigned long size);
+    unsigned long write(unsigned long p_id, unsigned char* buffer, 
+                        unsigned long offset, unsigned long size);
 
     unsigned long read(unsigned long c_id, unsigned char* buffer,
                        unsigned long offset, unsigned long size);
@@ -120,6 +122,7 @@ public:
     RingBuffer(unsigned long order, WaitConsumerStrategy  wait_strategy)
         : m_order(order),
           m_watermark(0),
+          m_write_barrier(0),
           m_unclaimed_write_offset(0),
           m_read_offset(0),
           m_write_offset(0),

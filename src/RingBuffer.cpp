@@ -166,9 +166,25 @@ unsigned long RingBuffer::advance_read_offset(unsigned long c_id, unsigned
     return offset + size;
 }*/
 
-unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, unsigned long size)
+const char* ul_to_binary(unsigned long x)
 {
-    //volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
+    static char b[65];
+    memset (b, 0, sizeof(b));
+
+    b[0] = '\0';
+
+    unsigned long z;
+    for (z = (1UL << 63); z > 0; z >>= 1)
+    {
+        strcat(b, ((x & z) == z) ? "1" : "0");
+    }
+
+    return b;
+}
+
+unsigned long RingBuffer::write(unsigned long p_id, unsigned char* buffer, unsigned long offset, unsigned long size)
+{
+    volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
     //volatile unsigned long ro = __sync_add_and_fetch(&m_read_offset, 0);
 
     //    if (wo + size >= m_size * 2 || (wo >= m_size && ro < m_size))
@@ -182,7 +198,18 @@ unsigned long RingBuffer::write(unsigned char* buffer, unsigned long offset, uns
 
     memcpy(m_address + offset, buffer, size);
     //__sync_add_and_fetch(&m_offsets[offset], offset + size);
-    __sync_add_and_fetch(&m_write_offset, size);
+    unsigned long shift = (offset - wo)/size;
+    if (shift > 63)
+        return 0;
+
+    __sync_add_and_fetch(&m_write_barrier, 1UL << shift); 
+    fprintf(stderr, "p_id: %lu, write_barrier: %lu, m_write_offset: %lu, offset: %lu, shift: %lu \n", p_id, m_write_barrier, wo, offset, shift);
+
+    while (m_write_barrier & 1UL)
+    {
+        __sync_add_and_fetch(&m_write_offset, size);
+        __sync_val_compare_and_swap(&m_write_barrier, m_write_barrier, m_write_barrier >> 1);
+    }
 
     //       unsigned long v1 = *((unsigned long*)(m_address + wo - 8));
     //    unsigned long v2 = *((unsigned long*)(m_address + wo));
@@ -265,8 +292,11 @@ RingBufferConsumer* RingBuffer::createConsumer()
 RingBufferProducer* RingBuffer::createProducer()
 {
     //protect it with mutex
-    RingBufferProducer* p =  new RingBufferProducer(this);
+    RingBufferProducer* p =  new RingBufferProducer(this, 
+                                                     m_producers.size());
     m_producers.push_back(p);
+
+    //m_write_barrier |= (1UL << m_producers.size()); 
 
     return p;
 }

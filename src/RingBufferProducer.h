@@ -11,10 +11,12 @@ class RingBufferProducer
 private:
     RingBuffer*   m_ring_buffer;
     unsigned long m_write_offset;
+    unsigned long m_producer_id;
 
-    RingBufferProducer(RingBuffer* ring_buffer)
+    RingBufferProducer(RingBuffer* ring_buffer, unsigned long p_id)
         : m_ring_buffer(ring_buffer),
-        m_write_offset(0)
+        m_write_offset(0),
+        m_producer_id(p_id)
     {
     }
 
@@ -35,7 +37,7 @@ public:
             prev_offset -= m_ring_buffer->m_size;
 
         //write and claim write offset
-        return (m_write_offset > prev_offset) ? m_ring_buffer->write((unsigned char*)buffer, m_write_offset - size, size) : 0;
+        return (m_write_offset > prev_offset) ? m_ring_buffer->write(m_producer_id, (unsigned char*)buffer, m_write_offset - size, size) : 0;
         /*        if (m_write_offset < prev_write_offset)
         {
             prev_write_offset -= m_ring_buffer->m_size;
