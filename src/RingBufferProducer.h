@@ -24,20 +24,19 @@ public:
 
     unsigned long write(void* buffer, unsigned long size)
     {
-        //claim 
         //m_write_offset = m_ring_buffer->claim_write_offset(size);
         //unsigned long prev_write_offset = m_write_offset;
         //write and claim write offset
         unsigned long prev_offset = m_write_offset;
-
         //advancing unclaimed write offset
         m_write_offset = m_ring_buffer->claim_write_offset(size);
 
-        if (m_write_offset < prev_offset && prev_offset > m_ring_buffer->m_size)
+        if (m_write_offset < prev_offset && prev_offset >= m_ring_buffer->m_size)
             prev_offset -= m_ring_buffer->m_size;
 
         //write and claim write offset
-        return (m_write_offset > prev_offset) ? m_ring_buffer->write(m_producer_id, (unsigned char*)buffer, m_write_offset - size, size) : 0;
+        //return (m_write_offset > prev_offset) ? m_ring_buffer->write(m_producer_id, (unsigned char*)buffer, m_write_offset - size, size) : 0;
+        return m_ring_buffer->write(m_producer_id, (unsigned char*)buffer, m_write_offset - size, size);
         /*        if (m_write_offset < prev_write_offset)
         {
             prev_write_offset -= m_ring_buffer->m_size;

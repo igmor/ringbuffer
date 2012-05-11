@@ -9,7 +9,7 @@
 #include "RingBufferProducer.h"
 
 //#define N_ITERS 100*1000*1000
-#define N_ITERS 200
+#define N_ITERS 400
 
 void* produce_function1 ( void *ptr )
 {
@@ -24,8 +24,7 @@ void* produce_function1 ( void *ptr )
     {
         *((unsigned long*)v) = i;
         while (p_producer->write(v, 64) != 64)
-            ;
-        //nanosleep(&ts, NULL);
+            pthread_yield();
 
         //         if (i % 10000 == 0)
         //    printf("%d\n", i);
@@ -86,7 +85,7 @@ void* consume_function ( void *ptr )
         }
         //else
         //    if (v % 1000000 == 0) fprintf(stderr, "read %ld\n", v);
-        //fprintf(stderr, "val = %ld\n", *((unsigned long*)v));
+        fprintf(stderr, "val = %ld\n", *((unsigned long*)v));
         if (*((unsigned long*)v) <= N_ITERS)
         {
             if (prev_v1 + 1 != *((unsigned long*)v))

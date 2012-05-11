@@ -80,9 +80,12 @@ void RingBuffer::free_ring_buffer()
 
 unsigned long RingBuffer::claim_write_offset(unsigned long size)
 {
-    volatile unsigned long ro = m_read_offset;//__sync_add_and_fetch(&m_read_offset,0);
-    volatile unsigned long wo = m_unclaimed_write_offset;//__sync_add_and_fetch(&m_unclaimed_write_offset,0);
-    if (wo + size >= 2 * m_size || ( wo >= m_size && ro < m_size && wo + size - m_size >= ro ))
+    volatile unsigned long ro = __sync_add_and_fetch(&m_read_offset,0);
+    volatile unsigned long wo = __sync_add_and_fetch(&m_unclaimed_write_offset,0);
+    volatile unsigned long w = __sync_add_and_fetch(&m_write_offset,0);
+    //    fprintf(stderr, "%s:   ro: %lu, wo: %lu\n", __FUNCTION__, ro, wo);
+
+    if (wo + size >= 2 * m_size || ( wo >= m_size && ro < m_size && wo + size - m_size > ro ) || (w > wo))
         return wo;
 
     return __sync_add_and_fetch(&m_unclaimed_write_offset, size);
@@ -181,7 +184,6 @@ const char* ul_to_binary(unsigned long x)
 
     return b;
 }
-
 unsigned long RingBuffer::write(unsigned long p_id, unsigned char* buffer, unsigned long offset, unsigned long size)
 {
     volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset, 0);
@@ -198,17 +200,17 @@ unsigned long RingBuffer::write(unsigned long p_id, unsigned char* buffer, unsig
 
     memcpy(m_address + offset, buffer, size);
     //__sync_add_and_fetch(&m_offsets[offset], offset + size);
-    unsigned long shift = (offset - wo)/size;
-    if (shift > 63)
+    unsigned long shift = (offset - wo) / size;
+    if (shift > 8*sizeof(m_write_barrier) - 1)
         return 0;
 
-    __sync_add_and_fetch(&m_write_barrier, 1UL << shift); 
-    fprintf(stderr, "p_id: %lu, write_barrier: %lu, m_write_offset: %lu, offset: %lu, shift: %lu \n", p_id, m_write_barrier, wo, offset, shift);
+    __sync_or_and_fetch(&m_write_barrier, 1UL << shift); 
+    fprintf(stderr, "p_id: %lu, write_barrier: %lu, m_write_offset: %lu, m_unclaimed_write_offset: %lu, read_offset: %lu, offset: %lu, val: %lu, shift: %lu \n", p_id, m_write_barrier, wo, m_unclaimed_write_offset, m_read_offset, offset, *((unsigned long*)buffer), shift);
 
-    while (m_write_barrier & 1UL)
+    while (__sync_add_and_fetch(&m_write_barrier,0) & 1UL)
     {
         __sync_add_and_fetch(&m_write_offset, size);
-        __sync_val_compare_and_swap(&m_write_barrier, m_write_barrier, m_write_barrier >> 1);
+        __sync_and_and_fetch(&m_write_barrier, m_write_barrier >> 1);
     }
 
     //       unsigned long v1 = *((unsigned long*)(m_address + wo - 8));
@@ -231,7 +233,7 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
 {
     //don't need to sync here, we'll miss a cycle or two in a worst case
     //full memory barrier is an expensive thing
-    volatile unsigned long wo = m_write_offset;//__sync_add_and_fetch(&m_write_offset,0);
+    volatile unsigned long wo = __sync_add_and_fetch(&m_write_offset,0);
 
     if (offset + size > wo || offset >= wo)
        return offset;
@@ -241,7 +243,7 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
     if (offset >= m_size && wo >= m_size)
     {
         //fprintf(stderr, "%s m_write_offset: %ld, read_offset: %ld, val: %ld\n", "wraping",
-        //        m_write_offset, m_read_offset, *((unsigned long*)(m_address + m_read_offset)), m_read_barrier, m_watermark);
+        //        m_write_offset, m_read_offset, *((unsigned long*)(m_address + m_read_offset)));
 
         //fprintf(stderr, "adjusting\n");
         
@@ -250,10 +252,10 @@ unsigned long RingBuffer::read(unsigned long c_id, unsigned char* buffer, unsign
         offset -= m_size;
         memcpy(buffer, m_address + offset, size);
         //__sync_sub_and_fetch(&m_read_offset, m_size - size);
-        m_read_offset -= (m_size - size);
 
-        __sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
         __sync_sub_and_fetch(&m_write_offset, m_size);
+        __sync_sub_and_fetch(&m_read_offset, (m_size - size));
+        __sync_sub_and_fetch(&m_unclaimed_write_offset, m_size);
 
         return offset + size;
        
